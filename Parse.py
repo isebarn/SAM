@@ -220,14 +220,14 @@ def run_level_threads(thread_chunks, queue):
 
   return sites
 
-def parse_level(root_url, level, remove_duplicates = False):
+def parse_level(root_url, level, duplicates = False):
   links = get_links_from_mongo_collection_by_url(root_url, levels[level - 1])
   queue = Queue()
   threads = create_level_threads(links, queue)
   thread_chunks = [threads[i:i + 10] for i in range(0, len(threads), 10)]
   sites = run_level_threads(thread_chunks, queue)
 
-  if remove_duplicates:
+  if not duplicates:
 
     # remove duplicate urls from working set
     working_urls = []
@@ -249,18 +249,20 @@ if __name__ == "__main__":
   if len(sys.argv) > 1:
     parser = argparse.ArgumentParser()
     parser.add_argument("url", type=str, help="Site URL")
+    parser.add_argument('level', nargs='?', default=0, type=int, help="Depth level. 0 for root (default)")
+    parser.add_argument('duplicates', nargs='?', default=0, type=int, help="0 for no duplicates, 1 for duplicates")
     args = parser.parse_args()
     url = args.url
+    duplicates = False if args.duplicates == 0 else True
+    level = args.level
 
   else:
     url = "visir.is"
     level = 1
+    duplicates = False
 
-  '''
   if level == 0:
     parse_root(url)
 
   if level > 0:
-    parse_level(url, level)
-  '''
-
+    parse_level(url, level, duplicates)
