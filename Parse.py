@@ -220,27 +220,27 @@ def run_level_threads(thread_chunks, queue):
 
   return sites
 
-def parse_level(root_url, level):
+def parse_level(root_url, level, remove_duplicates = False):
   links = get_links_from_mongo_collection_by_url(root_url, levels[level - 1])
   queue = Queue()
   threads = create_level_threads(links, queue)
   thread_chunks = [threads[i:i + 10] for i in range(0, len(threads), 10)]
   sites = run_level_threads(thread_chunks, queue)
 
+  if remove_duplicates:
 
-  # remove duplicate urls
-  working_urls = [x['url'] for x in links]
-  for site in sites:
-    site['subpages'] = list(filter(lambda x: x['url'] not in working_urls, site['subpages']))
-    working_urls += [x['url'] for x in site['subpages']]
+    # remove duplicate urls from working set
+    working_urls = []
+    for site in sites:
+      site['subpages'] = list(filter(lambda x: x['url'] not in working_urls, site['subpages']))
+      working_urls += [x['url'] for x in site['subpages']]
 
-  # remove urls already above level
-  '''
-  parent_links = get_links_from_mongo_collection_above_current_level(url, level)
-  parent_urls = [link['url'] for link in parent_links]
-  for site in sites:
-    site['subpages'] = list(filter(lambda x: x['url'] not in parent_urls, site['subpages']))
-  '''
+    # remove urls already above level
+    parent_links = get_links_from_mongo_collection_above_current_level(url, level)
+    parent_urls = [link['url'] for link in parent_links]
+    for site in sites:
+      site['subpages'] = list(filter(lambda x: x['url'] not in parent_urls, site['subpages']))
+
   for site in sites:
     save_to_mongo(site, levels[level], root_url)
 
@@ -256,11 +256,11 @@ if __name__ == "__main__":
     url = "visir.is"
     level = 1
 
+  '''
   if level == 0:
     parse_root(url)
 
   if level > 0:
     parse_level(url, level)
-  '''
   '''
 
