@@ -26,31 +26,28 @@ pip install -r requirements.txt
 ```
 
 # Usage
-```
-python Parse.py example.com level duplicates 
-```
-Here ```level``` means the depth, default is ```0``` for ```root``` level.
-Here ```duplicates``` means either save duplicates or not, indicated by ```0``` for not, ```1``` to save duplicates. Default is ```0```
 
-#### Root crawling
-For root page ```example.com``` the scraper will collect the HTML from the page and save it along with a list of all links that point to either ```subdomain.example.com``` or ```example.com/subdirectory```, in a mongodb collection called ```root```. 
-There will also be created an entry for each link in the mongodb collection ```level_1```
-
+### root.py
+This script parses a list of sites. 
 ```
-python Parse.py example.com 0 0
+python root.py SITES.txt
 ```
+Where ```SITES.txt``` is a ```.txt``` file with line separated URL's
 
-#### Level crawling
-To crawl all ```level_1``` URL's for ```example.com``` and not saving duplicate URL's, run
+This script will start ```N``` threads where ```N``` is the number of sites in ```SITES.txt```
+
+#### level1.py & level2.py
+These scripts will parse lists of sites collected in the database according to the site base URL
+
+If in mongodb collection ```root``` there exists an entry for ```example.com``` with a list of URL's, then those URL's will be parsed IF ```example.com``` is inside ```SITES.txt```
 
 ```
-python Parse.py example.com 1 0
+python level1.py SITES.txt NUM_CORES
+or
+python level2.py SITES.txt NUM_CORES
 ```
+Where ```SITES.txt``` is a ```.txt``` file with line separated URL's
+Where ```NUM_CORES``` is the number of cores used. If your computer has 4 cores, then put at most 4. Using the maximum number of cores may not give optimal performance.
 
-To save duplicate URL's, run
-
-```
-python Parse.py example.com 1 1
-```
-
-This will run in paralell with 10 threads crawling
+NOTE: My Lenovo Thinkpad T450 Quad-Core had problems running with 4 cores!
+On my computer, optimal performance is 2/3 cores (3 being a bit faster)

@@ -11,11 +11,12 @@ from selenium.webdriver.support.ui import WebDriverWait
 import argparse
 import sys
 import threading
-from multiprocessing import Queue
+from multiprocessing import Queue, Pool
 from bson.objectid import ObjectId
 
 
-client = pymongo.MongoClient(os.environ.get('DATABASE'))
+def client():
+  return pymongo.MongoClient(os.environ.get('DATABASE'))
 levels = ['root', 'level_1', 'level_2', 'level_3']
 
 # remove_prefix('House123', 'House') returns 123
@@ -47,7 +48,12 @@ def item_is_subdirectory(item):
   return item.startswith('/')
 
 def starts_with_subdomain(url, parent_url):
-  subdomain = re.search(r'([a-z0-9]+[.])*{}'.format(parent_url), url)
+  try:
+    subdomain = re.search(r'([a-z0-9]+[.])*{}'.format(parent_url), url)
+
+  except Exception as e:
+    print("Problem with url: {}".format(url))
+    return None
 
   return subdomain != None and subdomain.group(1) != None
 
@@ -82,7 +88,7 @@ def create_result_dict(url, soup, links):
   return result
 
 def get_mongo_collection(collection_name):
-  database = client["SAM"]
+  database = client()["SAM"]
   collection = database[collection_name]
 
   return collection
@@ -144,7 +150,7 @@ def get_links_from_mongo_collection_by_url(url, collection_name):
 
     return [x['subpages'] for x in mydoc if len(x['subpages']) > 0]
 
-def get_links_from_soup(soup):
+def get_links_from_soup(soup, url):
   links = set([link['href'] for link in soup.find_all('a', href=True)])
   links = [filter_conditions(link, url) for link in links]
   links = [link for link in links if link != None]
@@ -152,7 +158,6 @@ def get_links_from_soup(soup):
   return links
 
 def get_page_by_urllib3(url):
-  url = 'visir.is'
   http = urllib3.PoolManager()
   response = http.request("GET", url)
 
@@ -169,30 +174,41 @@ def get_soup(data):
 
 def parse_site_threaded(url, queue):
   result = parse_site(url['url'])
-  url['subpages'] = result['subpages']
-  url['html'] = result['html']
+
+  if result != None: 
+    url['subpages'] = result['subpages']
+    url['html'] = result['html']
+
+  else:
+    url['subpages'] = []
+    url['html'] = ''
 
   queue.put(url)
 
 def parse_site(url):
-  response = get_page_by_urllib3(url)
+  try:
+    response = get_page_by_urllib3(url)
 
-  if response.status != 200:
-    driver = get_page_by_selenium(url)
-    soup = get_soup(driver.page_source)
-    driver.close()
+    if response.status == 403:
+      driver = get_page_by_selenium(url)
+      soup = get_soup(driver.page_source)
+      driver.close()
 
-  else:
-    soup = get_soup(response.data)
+    else:
+      soup = get_soup(response.data)
 
-  links = get_links_from_soup(soup)
+    links = get_links_from_soup(soup, url)
 
-  data = create_result_dict(url, soup, links)
+    data = create_result_dict(url, soup, links)
 
-  return data
+    return data
+
+  except Exception as e:
+    print("Failed: {}".format(url))
+    return None
 
 def parse_root(url):
-  data = parse_site(url)
+  data = parse_site(url['url'])
   save_to_mongo(data, 'root')
 
 def create_level_threads(links, queue):
@@ -204,28 +220,25 @@ def create_level_threads(links, queue):
 
   return threads
 
-def run_level_threads(thread_chunks, queue):
+def run_level_threads(threads, queue):
   sites = []
 
-  for idx, chunk in enumerate(thread_chunks):
-    print("Chunk {}/{}".format(idx + 1, len(thread_chunks)))
+  for thread in threads:
+    thread.start()
 
-    for thread in chunk:
-      thread.start()
-
-    for thread in chunk:
-      thread.join()
-      data = queue.get()
-      sites.append(data)
+  for thread in threads:
+    thread.join()
+    data = queue.get()
+    sites.append(data)
 
   return sites
 
-def parse_level(root_url, level, duplicates = False):
+def parse_level(root_url, level = 1, duplicates = False):
+  print("Scraping: {}".format(root_url))
   links = get_links_from_mongo_collection_by_url(root_url, levels[level - 1])
   queue = Queue()
   threads = create_level_threads(links, queue)
-  thread_chunks = [threads[i:i + 10] for i in range(0, len(threads), 10)]
-  sites = run_level_threads(thread_chunks, queue)
+  sites = run_level_threads(threads, queue)
 
   if not duplicates:
 
@@ -236,7 +249,7 @@ def parse_level(root_url, level, duplicates = False):
       working_urls += [x['url'] for x in site['subpages']]
 
     # remove urls already above level
-    parent_links = get_links_from_mongo_collection_above_current_level(url, level)
+    parent_links = get_links_from_mongo_collection_above_current_level(root_url, level)
     parent_urls = [link['url'] for link in parent_links]
     for site in sites:
       site['subpages'] = list(filter(lambda x: x['url'] not in parent_urls, site['subpages']))
@@ -244,25 +257,29 @@ def parse_level(root_url, level, duplicates = False):
   for site in sites:
     save_to_mongo(site, levels[level], root_url)
 
+  print("Completed scraping: {}".format(root_url))
+
+def parse_root_threaded(urls):
+  threads = []
+  queue = Queue()
+  for url in urls:
+    data = {}
+    data['url'] = url
+    thread = threading.Thread(target=parse_root, args=(data,))
+    threads.append(thread)
+
+  for thread in threads:
+    thread.start()
+
+  for thread in threads:
+    thread.join()
+
 if __name__ == "__main__":
+  filename = 'sites.txt'
+  site_file = open(filename, 'r')
+  urls = [x.strip() for x in site_file.readlines()]
+  #parse_root_threaded(urls)
 
-  if len(sys.argv) > 1:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("url", type=str, help="Site URL")
-    parser.add_argument('level', nargs='?', default=0, type=int, help="Depth level. 0 for root (default)")
-    parser.add_argument('duplicates', nargs='?', default=0, type=int, help="0 for no duplicates, 1 for duplicates")
-    args = parser.parse_args()
-    url = args.url
-    duplicates = False if args.duplicates == 0 else True
-    level = args.level
-
-  else:
-    url = "visir.is"
-    level = 1
-    duplicates = False
-
-  if level == 0:
-    parse_root(url)
-
-  if level > 0:
-    parse_level(url, level, duplicates)
+  pool = Pool(processes=4)
+  inputs = urls[0:4]
+  result = pool.map(parse_level, inputs)
