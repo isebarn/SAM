@@ -102,6 +102,7 @@ def save_to_mongo(data, collection_name, root_level = None):
     child_collection = get_mongo_collection(levels[child_collection_idx])
 
     for link in data['subpages']:
+      link['parent'] = data['url']
       child_collection.insert_one(link)
 
   if "_id" in data:
@@ -275,6 +276,8 @@ def parse_root_threaded(urls):
     thread.join()
 
 if __name__ == "__main__":
+  print(parse_level('visir.is', 1))
+  '''
   filename = 'sites.txt'
   site_file = open(filename, 'r')
   urls = [x.strip() for x in site_file.readlines()]
@@ -283,3 +286,4 @@ if __name__ == "__main__":
   pool = Pool(processes=4)
   inputs = urls[0:4]
   result = pool.map(parse_level, inputs)
+  '''
