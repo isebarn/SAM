@@ -221,6 +221,17 @@ def create_level_threads(links, queue):
 
   return threads
 
+def create_level_2_threads(links, queue):
+  threads = []
+
+  for link in links:
+    for url in link:
+      thread = threading.Thread(target=parse_site_threaded, args=(url, queue))
+      threads.append(thread)
+
+  return threads
+
+
 def run_level_threads(threads, queue):
   sites = []
 
@@ -234,9 +245,37 @@ def run_level_threads(threads, queue):
 
   return sites
 
+def parse_level_2(root_url, level = 2, duplicates = False):
+  print("Scraping: {}".format(root_url))
+  links = get_links_from_mongo_collection_by_url(root_url, levels[level - 1])
+
+  queue = Queue()
+  threads = create_level_2_threads(links, queue)
+  sites = run_level_threads(threads, queue)
+
+  if not duplicates:
+
+    # remove duplicate urls from working set
+    working_urls = []
+    for site in sites:
+      site['subpages'] = list(filter(lambda x: x['url'] not in working_urls, site['subpages']))
+      working_urls += [x['url'] for x in site['subpages']]
+
+    # remove urls already above level
+    parent_links = get_links_from_mongo_collection_above_current_level(root_url, level)
+    parent_urls = [link['url'] for link in parent_links]
+    for site in sites:
+      site['subpages'] = list(filter(lambda x: x['url'] not in parent_urls, site['subpages']))
+
+  for site in sites:
+    save_to_mongo(site, levels[level], root_url)
+
+  print("Completed scraping: {}".format(root_url))
+
 def parse_level(root_url, level = 1, duplicates = False):
   print("Scraping: {}".format(root_url))
   links = get_links_from_mongo_collection_by_url(root_url, levels[level - 1])
+
   queue = Queue()
   threads = create_level_threads(links, queue)
   sites = run_level_threads(threads, queue)
